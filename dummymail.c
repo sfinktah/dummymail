@@ -117,7 +117,7 @@ static void *smtpd_handler(void *_arg)
 #ifdef MEGADEBUG
 		printf("[%s] Connection Received\n", inet_ntoa(peer.sin_addr));
 #endif
-				 
+
 	} else {
 		/* Unlikely this setion will ever be reached */
 
@@ -256,11 +256,97 @@ static void *smtpd_handler(void *_arg)
 	return NULL;
 }
 
+
+int resolveAddressAndBind(const char *host, int *s, int iptype) {
+	struct addrinfo hints, *res, *p;
+	memset(&hints, 0, sizeof(hints));
+	hints.ai_family = AF_UNSPEC;     // Allow IPv4 or IPv6
+	hints.ai_socktype = SOCK_STREAM; // Use TCP
+	hints.ai_flags = AI_PASSIVE;     // For binding
+
+	int status = getaddrinfo(host, NULL, &hints, &res);
+	if (status != 0) {
+		fprintf(stderr, "getaddrinfo error: %s\n", gai_strerror(status));
+		return 1;
+	}
+
+	// Iterate over the address results
+	for (p = res; p != NULL; p = p->ai_next) {
+		char ipString[INET6_ADDRSTRLEN];
+		void *addr;
+
+		if (iptype == 4 && p->ai_family == AF_INET) {
+			struct sockaddr_in *ipv4 = (struct sockaddr_in *)p->ai_addr;
+
+			*s = socket(AF_INET, SOCK_STREAM, 0);
+			if (*s == -1) {
+				perror("socket (IPv4)");
+				continue;
+			}
+
+			// Enable socket reuse
+			int reuse = 1;
+			if (setsockopt(*s, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse)) == -1) {
+				perror("setsockopt (IPv4)");
+				close(*s);
+				continue;
+			}
+
+			((struct sockaddr_in *)p->ai_addr)->sin_port = htons(GENERIC_PORT);
+
+			addr = &(ipv4->sin_addr);
+
+			inet_ntop(p->ai_family, addr, ipString, sizeof(ipString));
+			printf("Resolved IP address: %s\n", ipString);
+
+			if (bind(*s, p->ai_addr, p->ai_addrlen) == -1) {
+				perror("bind (IPv4)");
+				close(*s);
+				continue;
+			}
+		} else if (iptype == 6 && p->ai_family == AF_INET6) {
+			struct sockaddr_in6 *ipv6 = (struct sockaddr_in6 *)p->ai_addr;
+
+			*s = socket(AF_INET6, SOCK_STREAM, 0);
+			if (*s == -1) {
+				perror("socket (IPv6)");
+				continue;
+			}
+
+			// Enable socket reuse
+			int reuse = 1;
+			if (setsockopt(*s, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse)) == -1) {
+				perror("setsockopt (IPv6)");
+				close(*s);
+				continue;
+			}
+
+			((struct sockaddr_in6 *)p->ai_addr)->sin6_port = htons(GENERIC_PORT);
+
+			addr = &(ipv6->sin6_addr);
+
+			inet_ntop(p->ai_family, addr, ipString, sizeof(ipString));
+			printf("Resolved IP address: %s\n", ipString);
+
+			if (bind(*s, p->ai_addr, p->ai_addrlen) == -1) {
+				perror("bind (IPv6)");
+				close(*s);
+				continue;
+			}
+		}
+	}
+
+	freeaddrinfo(res);
+	return 0;
+}
+
+
+
+
 static void *generic_accept(void *_arg)
 {
-
 	pth_attr_t attr;
-	struct sockaddr_in sar;
+	struct sockaddr chosenAddr;
 	struct protoent *pe;
 	int peer_len;
 	int i;
@@ -272,42 +358,62 @@ static void *generic_accept(void *_arg)
 	pth_t tret;
 	int sw;
 	struct sockaddr_in peer_addr;
+	// ---
+	int iptype = *(int*)(_arg);
 
-	pe = getprotobyname("tcp");
-
-	sa = socket(AF_INET, SOCK_STREAM, pe->p_proto);
-	if (sa == -1) {
-		perror("socket()");
+	if (resolveAddressAndBind(GENERIC_HOST, &sa, iptype) != 0) {
+		fprintf(stderr, "Failed to bind to addresses\n");
 		return NULL;
 	}
 
-	if (setsockopt(sa, SOL_SOCKET, SO_REUSEADDR, (void *)&one, sizeof(one)) == -1)
-	{
-		perror("setsockopt()");
+	if (iptype == 4 && listen(sa, 10) == -1) {
+		perror("listen (IPv4)");
+		close(sa);
 		return NULL;
 	}
 
-#ifdef GENERIC_HOST
-	memcpy(&sar, getaddrbyany(GENERIC_HOST), sizeof(sar));
-#else
-	sar.sin_family = AF_INET;
-	sar.sin_addr.s_addr = INADDR_ANY;
-#endif
-
-	sar.sin_port = htons(GENERIC_PORT);
-
-	printf("Binding to port %d\n", GENERIC_PORT);
-	if (bind(sa, (struct sockaddr *)&sar, sizeof(struct sockaddr_in)) == -1)
-	{
-		perror("bind()");
+	if (iptype == 6 && listen(sa, 10) == -1) {
+		perror("listen (IPv6)");
+		close(sa);
 		return NULL;
 	}
 
-	if (setgid(8)) perror("setgid");
-	if (setuid(8)) perror("setuid");
+	// ---
+
+	/*pe = getprotobyname("tcp");*/
+
+	/*sa = socket(AF_INET, SOCK_STREAM, pe->p_proto);*/
+	/*if (sa == -1) {*/
+	/*perror("socket()");*/
+	/*return NULL;*/
+	/*}*/
+
+	/*if (setsockopt(sa, SOL_SOCKET, SO_REUSEADDR, (void *)&one, sizeof(one)) == -1)*/
+	/*{*/
+	/*perror("setsockopt()");*/
+	/*return NULL;*/
+	/*}*/
+
+	/*#ifndef GENERIC_HOST*/
+	/*((struct sockaddr_in *)chosenAddr)->sin_family = AF_INET;*/
+	/*((struct sockaddr_in *)chosenAddr)->sin_addr.s_addr = INADDR_ANY;*/
+	/*#else*/
+	/*#endif*/
+
+
+
+	// ---
+	/*printf("binding to port %d\n", GENERIC_PORT);*/
+	/*if (bind(sa, chosenAddr, sizeof(struct sockaddr)) == -1)*/
+	/*{*/
+	/*perror("bind()");*/
+	/*close(sa);*/
+	/*return NULL;*/
+	/*}*/
+
 	if (0) {
 		FILE *fw;
-	   fw = fopen("/var/spool/mail/__test__", "w");
+		fw = fopen("/var/spool/mail/__test__", "w");
 		if (!fw) {
 			perror("fopen");
 			return NULL;
@@ -316,11 +422,7 @@ static void *generic_accept(void *_arg)
 	}
 
 
-#ifndef DEBUG
-	daemon(1,0);
-#endif
-
-	listen(sa, 10);
+	/*listen(sa, 10);*/
 
 	attr = pth_attr_new();
 	pth_attr_set(attr, PTH_ATTR_NAME, GENERIC_HANDLER_NAME);
@@ -384,13 +486,23 @@ int main(int argc, char *argv[])
 	attr = pth_attr_new();
 	pth_attr_set(attr, PTH_ATTR_NAME, "generic_accept");
 	pth_attr_set(attr, PTH_ATTR_JOINABLE, FALSE);
-	pth_spawn(attr, generic_accept, NULL);
+	int four = 4;
+	int six  = 6;
+	pth_spawn(attr, generic_accept, (void*)&four);
+	pth_spawn(attr, generic_accept, (void*)&six);
+
+	pth_yield(NULL);
+	if (setgid(8)) perror("setgid");
+	if (setuid(8)) perror("setuid");
+#ifndef DEBUG
+	daemon(1,0);
+#endif
 
 	/*
 		attr = pth_attr_new();
 		pth_attr_set(attr, PTH_ATTR_NAME, "smtp_test");
 		pth_spawn(attr, smtp_test, NULL);
-		*/
+	 */
 	for (;;) {
 
 		/* Sleep for 1/4 of a second, and queue up lots of socket data (and save our precious CPU!) */
