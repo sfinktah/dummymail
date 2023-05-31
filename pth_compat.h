@@ -6,6 +6,6 @@
 #define pth_select select
 #define pth_connect connect
 #else
-#include "/usr/include/pth.h"
+#include <pth.h>
 #endif
 

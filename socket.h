@@ -11,6 +11,7 @@
 #include        <string.h>
 #include        <errno.h>
 #include        <netinet/in.h>
+#include        <unistd.h>
 
 /* Override these later if necessary */
 

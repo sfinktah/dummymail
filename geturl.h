@@ -3,7 +3,7 @@
 
 #include "socket.h"
 #ifdef PTH
-#include "/usr/include/pth.h"
+#include <pth.h>
 #endif
 
 extern char* get_url(char* url);

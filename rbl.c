@@ -113,7 +113,7 @@ void vhex(char *str, void *buf, int len) {
 }
 
 #define MAX_REPLY_SIZE 2048
-dns_reply(char *reply, int len)
+int dns_reply(char *reply, int len)
 {
 
 	//

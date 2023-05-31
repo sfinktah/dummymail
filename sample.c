@@ -13,7 +13,7 @@
 #include        <string.h>
 #include        <errno.h>
 
-#include "/usr/include/pth.h"
+#include <pth.h>
 #include "test_common.h"
 #include "geturl.h"
 #include "socket.h"

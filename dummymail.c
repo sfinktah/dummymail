@@ -24,22 +24,24 @@
 #define GREETING "220 mail Service Ready\r\n"
 #define BUSY "450 Too many connections, please try again later\n"
 
-#include "/usr/include/pth.h"
+#include <pth.h>
 #include "socket.h"
 #include "smtp.h"
 #include "test_common.h"
 #include "deliver_message.h"
+#ifdef RBL
 #include "rbl.h"
+#endif
 
 #define DEBUG
 // #define MEGADEBUG
 // #define MEGAMEGADEBUG
-#define SMTP_PORT 26
+#define SMTP_PORT 25
 #define GENERIC_PORT SMTP_PORT
 #define GENERIC_HANDLER smtpd_handler
 #define GENERIC_HANDLER_NAME "smtpd_handler"
 
-// #define GENERIC_HOST "209.236.74.138"
+#define GENERIC_HOST "mail.spamtrak.org"
 // #ifndef GENERIC_HOST
 //	#define GENERIC_HOST INADDR_ANY 
 // #endif
@@ -57,22 +59,24 @@ int messages = 0;
 int connections = 0;
 time_t start_time;
 
-basic_init()
+int basic_init()
 {
 	unsigned long required = FD_SETSIZE;
 	struct rlimit rlim;
 
 	getrlimit(RLIMIT_NOFILE, &rlim);
-	printf("Maximum filehandles was set to soft:%i hard:%i\n", (rlim.rlim_max), rlim.rlim_cur, required);
+	printf("Maximum filehandles was set to soft:%i hard:%i\n", (int)(rlim.rlim_max), (int)(rlim.rlim_cur));
 
-	rlim.rlim_max = required;
-	rlim.rlim_cur = required;
+	if (rlim.rlim_max < required)
+		rlim.rlim_max = required;
+	if (rlim.rlim_cur < required)
+		rlim.rlim_cur = required;
 
 	if (setrlimit(RLIMIT_NOFILE, &rlim) != 0)
 		perror("setrlimit");
 
 	getrlimit(RLIMIT_NOFILE, &rlim);
-	printf("Now set to %i/%i\n", (rlim.rlim_max), rlim.rlim_cur, required);
+	printf("Now set to %i/%i\n", (int)(rlim.rlim_max), (int)rlim.rlim_cur);
 
 	start_time = time(NULL);
 
@@ -81,8 +85,10 @@ basic_init()
 		exit(3);
 	}
 
+#ifdef RBL
 	printf("Resolving barracudanetworks...\n");
 	rbl_init(NULL);                                                                                                                                                                                                                                    
+#endif
 
 	return 0;
 }
@@ -98,7 +104,9 @@ static void *smtpd_handler(void *_arg)
 	int fd = (int)((long)_arg);
 	int n;
 	int ret;
+#ifdef RBL
 	int rbl_result = 0;
+#endif
 	int len = sizeof(struct sockaddr_in);
 	struct sockaddr_in peer;
 
@@ -115,7 +123,7 @@ static void *smtpd_handler(void *_arg)
 
 		close(fd);
 		threads --;
-		return;
+		return NULL;
 	}
 
 	connections ++;
@@ -143,8 +151,11 @@ static void *smtpd_handler(void *_arg)
 		return NULL;
 	}
 
-	state.nRblResult = rbl_check_ip(state.szRemoteIp);
 	printf("Connection Received: %16s %d\n", state.szRemoteIp, state.nRblResult);
+#ifdef RBL
+	state.nRblResult = rbl_check_ip(state.szRemoteIp);
+	printf("RBL says: %i\n", state.nRblResult);
+#endif
 
 	pth_send(fd, GREETING, strlen(GREETING), MSG_NOSIGNAL);
 
@@ -292,8 +303,18 @@ static void *generic_accept(void *_arg)
 		return NULL;
 	}
 
-	setuid(8);
-	setgid(12);
+	if (setgid(8)) perror("setgid");
+	if (setuid(8)) perror("setuid");
+	if (0) {
+		FILE *fw;
+	   fw = fopen("/var/spool/mail/__test__", "w");
+		if (!fw) {
+			perror("fopen");
+			return NULL;
+		}
+		fclose(fw);
+	}
+
 
 #ifndef DEBUG
 	daemon(1,0);
@@ -313,7 +334,7 @@ static void *generic_accept(void *_arg)
 		if (t2 - t1 > 60) 
 		{
 			t1 = t2;
-			printf("%d,%d,'threads: %d (pth: %d) messages: %d connections: %d (%d per minute)'\n", connections, messages, threads, pth_ctrl(PTH_CTRL_GETTHREADS), messages, connections, (60 * connections) / (t2 - start_time));
+			printf("%d,%d,'threads: %d (pth: %ld) messages: %d connections: %d (%ld per minute)'\n", connections, messages, threads, pth_ctrl(PTH_CTRL_GETTHREADS), messages, connections, (60 * connections) / (t2 - start_time));
 			fflush(stdout);
 			// pth_ctrl(PTH_CTRL_DUMPSTATE, stdout);
 		}
@@ -326,7 +347,7 @@ static void *generic_accept(void *_arg)
 			close(sw);
 		}
 		else if (sw != -1)  {
-			tret = pth_spawn(attr, GENERIC_HANDLER, (void *)sw);
+			tret = pth_spawn(attr, GENERIC_HANDLER, (void *)(long long)sw);
 			if (tret == NULL) {
 				fprintf(stderr, "Couldn't spawn thread %s\n", GENERIC_HANDLER_NAME);
 				close(sw);

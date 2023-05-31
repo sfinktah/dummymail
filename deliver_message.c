@@ -2,8 +2,10 @@
 #include <stdio.h>
 #include <time.h>
 #include <string.h>
+#include <errno.h>
 
 #define UNKNOWN "Unknown"
+#define DEBUG
 
 extern int exists(char *filename);
 extern int validmask(char *st, char *valid);
@@ -47,7 +49,7 @@ char *datestamp_rfc822(time_t whattime)		/* Thu, 13 May 2004 13:31:06 +1000 */
 void deliver_message(struct smtp_state * state)
 {
 	static int unique_counter = 0;
-	char filename[256];
+	char filename[256] = {};
 	FILE *fw;
 
 	if (!state->szFrom || !state->szTo || !state->szMessage) {
@@ -94,7 +96,7 @@ void deliver_message(struct smtp_state * state)
 	}
 
 	unique_counter ++;
-	sprintf(filename, "/var/spool/virtual/%s/%s", state->szHost, state->szUser);
+	snprintf(filename, 255, "/var/spool/virtual/%s/%s", state->szHost, state->szUser);
 #ifdef DEBUG
 	printf("Final Delivery to: %s\n", filename);
 #endif
@@ -102,11 +104,15 @@ void deliver_message(struct smtp_state * state)
 	if (perms & 0111) {
 		fw = popen(filename, "w");	
 	} else {
-		perms = 0;	// We'll chose whether to fclose() or pclose() based on this later.
 		fw = fopen(filename, "a");
 	}
 
 	if (!fw) {
+#ifdef DEBUG
+        if (!fw) {
+            printf("Couldn't open %s (perms: %o) errno: %i\n", filename, perms, errno);
+        }
+#endif
 		return;
 	}
 
@@ -134,7 +140,9 @@ void deliver_message(struct smtp_state * state)
 			fprintf(fw, "X-Envelope-From: <%s>\n", state->szFrom);
 			fprintf(fw, "X-SpamTrak-Tag: %s\n", state->szTo);
 			fprintf(fw, "X-SpamTrak-RemoteIp: %s\n", state->szRemoteIp);
+#ifdef RBL
 			fprintf(fw, "X-SpamTrak-RBL-Result: %d\n", state->nRblResult);
+#endif
 			fprintf(fw, "Reply-To: %s\n", (p+6));
 			fprintf(fw, "From: \"[%s]\" <%s>", state->szTo, state->szTo);
 			*q = '\n';
@@ -154,7 +162,9 @@ void deliver_message(struct smtp_state * state)
 			fprintf(fw, "X-Envelope-From: <%s>\n", state->szFrom);
 			fprintf(fw, "X-SpamTrak-Tag: %s\n", state->szTo);
 			fprintf(fw, "X-SpamTrak-RemoteIp: %s\n", state->szRemoteIp);
+#ifdef RBL
 			fprintf(fw, "X-SpamTrak-RBL-Result: %d\n", state->nRblResult);
+#endif
 			fprintf(fw, "From: \"[%s]\" <%s>", state->szTo, state->szTo);
 			*q = '\n';
 			fprintf(fw, "%s\n\n", q);
@@ -165,7 +175,7 @@ void deliver_message(struct smtp_state * state)
 		fprintf(fw, "%s\n\n", state->szMessage);
 	} */
 
-	if (perms) {
+	if (perms & 0111) {
 		pclose(fw);
 	} else {
 		fclose(fw);
