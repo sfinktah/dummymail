@@ -10,8 +10,8 @@ CFLAGS = $(CDEBUG) $(CC_OPT) -I. $(DEFS) # -std=c99 -I.
 
 all: dummymail
 
-dummymail: error.o smtpd.o dummymail.o socket.o test_common.o deliver_message.o snprintf.o rbl.o transact_udp.o lazy_getaddr.o
-	$(CC) -o dummymail error.o smtpd.o dummymail.o socket.o test_common.o deliver_message.o snprintf.o rbl.o transact_udp.o lazy_getaddr.o $(LIBS)
+dummymail: error.o smtpd.o dummymail.o socket.o test_common.o deliver_message.o snprintf.o rbl.o transact_udp.o lazy_getaddr.o conf.o
+	$(CC) -o dummymail error.o smtpd.o dummymail.o socket.o test_common.o deliver_message.o snprintf.o rbl.o transact_udp.o lazy_getaddr.o conf.o $(LIBS)
 
 sample: sample.o test_common.o geturl.o socket.o
 	$(CC) -o stoxy test_common.o sample.o geturl.o socket.o -g $(LIBS)
